@@ -1,11 +1,24 @@
 ## Day 18 Lakehouse Lab — student UX
 ## Two paths: lightweight (default, pure Python) and Spark (Docker, optional).
 
+ifeq ($(OS),Windows_NT)
+    SHELL := cmd.exe
+endif
+
 VENV       := .venv
-PY         := $(VENV)/bin/python
-PIP        := $(VENV)/bin/pip
-JUPYTER    := $(VENV)/bin/jupyter
-JUPYTEXT   := $(VENV)/bin/jupytext
+ifeq ($(OS),Windows_NT)
+    BIN := $(VENV)\Scripts
+    PY  := $(BIN)\python.exe
+    PIP := $(BIN)\pip.exe
+    JUPYTER := $(BIN)\jupyter.exe
+    JUPYTEXT := $(BIN)\jupytext.exe
+else
+    BIN := $(VENV)/bin
+    PY  := $(BIN)/python
+    PIP := $(BIN)/pip
+    JUPYTER := $(BIN)/jupyter
+    JUPYTEXT := $(BIN)/jupytext
+endif
 COMPOSE    := docker compose -f docker/docker-compose.yml
 
 .DEFAULT_GOAL := help
@@ -18,26 +31,41 @@ help: ## Show this help
 # Lightweight path (default) — pure Python, no Docker, no JVM
 # ─────────────────────────────────────────────────────────────
 
-setup: ## [lite] Create venv + install deps (~80 MB, ~10s with pip / ~2s with uv)
+setup: ## [lite] Create venv + install deps
+ifeq ($(OS),Windows_NT)
+	@if not exist $(VENV) python -m venv $(VENV)
+	@$(PIP) install -q -r requirements.txt
+	@for %%f in (notebooks\*.py) do if not "%%f"=="notebooks\_setup.py" $(JUPYTEXT) --to notebook --update %%f
+else
 	@command -v uv >/dev/null 2>&1 && uv venv $(VENV) || python3 -m venv $(VENV)
 	@command -v uv >/dev/null 2>&1 && uv pip install --python $(PY) -r requirements.txt \
 	  || $(PIP) install -q -r requirements.txt
 	@$(JUPYTEXT) --to notebook --update notebooks/*.py 2>/dev/null || $(JUPYTEXT) --to notebook notebooks/*.py
+endif
 	@echo ""
 	@echo "  ✓ Setup complete. Run 'make smoke' then 'make lab'."
 
 smoke: ## [lite] 5-second end-to-end smoke test
-	@$(PY) scripts/verify_lite.py
+	@$(PY) scripts\verify_lite.py
 
 lab: ## [lite] Open Jupyter Lab on http://localhost:8888
+ifeq ($(OS),Windows_NT)
+	@for %%f in (notebooks\*.py) do if not "%%f"=="notebooks\_setup.py" $(JUPYTEXT) --to notebook --update %%f >nul 2>&1 || rem
+else
 	@$(JUPYTEXT) --to notebook --update notebooks/*.py 2>/dev/null || true
+endif
 	@$(JUPYTER) lab --notebook-dir=notebooks --ServerApp.token='' --no-browser
 
 data: ## [lite] Generate 200K-row Bronze sample for NB4
-	@$(PY) scripts/generate_data_lite.py
+	@$(PY) scripts\generate_data_lite.py
 
 clean: ## [lite] Wipe venv + lakehouse data
+ifeq ($(OS),Windows_NT)
+	@if exist $(VENV) rd /s /q $(VENV)
+	@if exist _lakehouse rd /s /q _lakehouse
+else
 	rm -rf $(VENV) _lakehouse notebooks/.ipynb_checkpoints
+endif
 
 # ─────────────────────────────────────────────────────────────
 # Spark + Docker path (optional, production-fidelity)
